@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:bp="http://www.osgi.org/xmlns/blueprint/v1.0.0" xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:ext="http://aries.apache.org/blueprint/xmlns/blueprint-ext/v1.0.0">
+
+	<cm:property-placeholder persistent-id="idv.kaomk.eicrhios.shell.xmpp"
+		update-strategy="reload">
+		<cm:default-properties>
+			<cm:property name="host" value=""/>
+			<cm:property name="serviceName" value=""/>
+			<cm:property name="httpProxyHost" value=""/>
+			<cm:property name="port" value="-1"/>
+			<cm:property name="httpProxyPort" value="-1"/>
+		</cm:default-properties>
+	</cm:property-placeholder>
+
+	<bean id="xmppConsoleAgent" class="idv.kaomk.eicrhios.shell.xmpp.XMPPConsoleAgent">
+		<property name="host" value="${host}" />
+		<property name="port" value="${port}" />
+		<property name="serviceName" value="${serviceName}" />
+		<property name="httpProxyHost" value="${httpProxyHost}" />
+		<property name="httpProxyPort" value="${httpProxyPort}" />
+		<property name="username" value="${username}" />
+		<property name="password" value="${password}" />
+	</bean>
+	
+	<command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
+		<command name="xmpp/start">
+			<action class="idv.kaomk.eicrhios.shell.xmpp.XMPPStartAction">
+				<property name="xmppConsoleAgent" ref="xmppConsoleAgent" />
+			</action>
+		</command>
+	</command-bundle>
+</blueprint>
