@@ -6,15 +6,20 @@
 	<cm:property-placeholder persistent-id="idv.kaomk.eicrhios.shell.xmpp"
 		update-strategy="reload">
 		<cm:default-properties>
-			<cm:property name="host" value=""/>
-			<cm:property name="serviceName" value=""/>
-			<cm:property name="httpProxyHost" value=""/>
-			<cm:property name="port" value="-1"/>
-			<cm:property name="httpProxyPort" value="-1"/>
+			<cm:property name="host" value="" />
+			<cm:property name="serviceName" value="" />
+			<cm:property name="httpProxyHost" value="" />
+			<cm:property name="port" value="-1" />
+			<cm:property name="httpProxyPort" value="-1" />
 		</cm:default-properties>
 	</cm:property-placeholder>
 
-	<bean id="xmppConsoleAgent" class="idv.kaomk.eicrhios.shell.xmpp.XMPPConsoleAgent">
+	<reference id="commandProcessor"
+		interface="org.apache.felix.service.command.CommandProcessor" />
+
+	<bean id="xmppConsoleAgent" class="idv.kaomk.eicrhios.shell.xmpp.XMPPConsoleAgent"
+		init-method="connect">
+		<property name="commandProcessor" ref="commandProcessor" /> 
 		<property name="host" value="${host}" />
 		<property name="port" value="${port}" />
 		<property name="serviceName" value="${serviceName}" />
@@ -23,12 +28,12 @@
 		<property name="username" value="${username}" />
 		<property name="password" value="${password}" />
 	</bean>
-	
-	<command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
-		<command name="xmpp/start">
-			<action class="idv.kaomk.eicrhios.shell.xmpp.XMPPStartAction">
-				<property name="xmppConsoleAgent" ref="xmppConsoleAgent" />
-			</action>
-		</command>
-	</command-bundle>
+
+	<!-- <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0"> -->
+	<!-- <command name="xmpp/start"> -->
+	<!-- <action class="idv.kaomk.eicrhios.shell.xmpp.XMPPStartAction"> -->
+	<!-- <property name="xmppConsoleAgent" ref="xmppConsoleAgent" /> -->
+	<!-- </action> -->
+	<!-- </command> -->
+	<!-- </command-bundle> -->
 </blueprint>
