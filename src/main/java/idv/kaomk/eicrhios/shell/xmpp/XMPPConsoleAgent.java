@@ -1,14 +1,16 @@
 package idv.kaomk.eicrhios.shell.xmpp;
 
-import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.InterruptedIOException;
+import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.felix.service.command.CommandProcessor;
@@ -32,8 +34,8 @@ import org.slf4j.LoggerFactory;
 
 public class XMPPConsoleAgent {
 	public static final int TERM_WIDTH = 120;
-	public static final int TERM_HEIGHT = 39; 
-	
+	public static final int TERM_HEIGHT = 39;
+
 	private Logger logger = LoggerFactory.getLogger(XMPPConsoleAgent.class);
 
 	private String mHost;
@@ -90,20 +92,23 @@ public class XMPPConsoleAgent {
 
 			@Override
 			public void presenceChanged(Presence presence) {
-				System.out.println("presenceChanged:" + presence.getType() + ": "
-						+ presence.getFrom());
-				if (presence.isAvailable()){
-					String from = presence.getFrom();
-					if (!mSessionMap.containsKey(from) || mSessionMap.get(from).isClosed()){
-						try {
-							mSessionMap.put(from, new SessionTerminal());
-						} catch (IOException e) {
-							logger.error("error during SessionTerminal init: ", e);
-						}
-					}
-				}
-				
-				if (!presence.isAvailable() && mSessionMap.containsKey(presence.getFrom())){
+				System.out.println("presenceChanged:" + presence.getType()
+						+ ": " + presence.getFrom());
+				// if (presence.isAvailable()) {
+				// String from = presence.getFrom();
+				// if (!mSessionMap.containsKey(from)
+				// || mSessionMap.get(from).isClosed()) {
+				// try {
+				// mSessionMap.put(from, new SessionTerminal());
+				// } catch (IOException e) {
+				// logger.error("error during SessionTerminal init: ",
+				// e);
+				// }
+				// }
+				// }
+
+				if (!presence.isAvailable()
+						&& mSessionMap.containsKey(presence.getFrom())) {
 					mSessionMap.remove(presence.getFrom()).closed();
 				}
 			}
@@ -142,24 +147,32 @@ public class XMPPConsoleAgent {
 				if (!createdLocally)
 					chat.addMessageListener(new MessageListener() {
 						@Override
-						public void processMessage(Chat arg0, Message arg1) {
+						public void processMessage(Chat chat, Message message) {
 							try {
-//								System.out.println(arg1.toXML());
-//								arg0.sendMessage(arg1.getBody());
-								SessionTerminal st = mSessionMap.get(arg1.getFrom());
-								if (st != null){
+								SessionTerminal st;
+								if (mSessionMap.containsKey(message.getFrom())) {
+									st = mSessionMap.get(message.getFrom());
+								} else {
+									st = new SessionTerminal(chat);
+									mSessionMap.put(message.getFrom(), st);
+								}
+
+								if (message.getType() == Message.Type.error) {
+									logger.warn(String.format(
+											"receive error xmpp essage: %s",
+											message.toXML()));
+								} else if (message.getType() == Message.Type.chat){
 									StringBuilder sb = new StringBuilder();
-									sb.append(arg1.getBody()).append("\n");
-									String str = arg1.getBody();
+									sb.append(message.getBody()).append("\n");
+									String str = message.getBody();
 									try {
-										String dump = st.handle(sb.toString(),  false);
-										arg0.sendMessage(dump);
+										st.handle(sb.toString(), false);
 									} catch (IOException e) {
 										logger.error("error during handle: ", e);
 									}
-								}
-								 
-							} catch (XMPPException e) {
+								} else throw new RuntimeException("shoud not happen!!");
+
+							} catch (Exception e) {
 								throw new RuntimeException(e);
 							}
 
@@ -230,11 +243,9 @@ public class XMPPConsoleAgent {
 		mHttpProxyPort = httpProxyPort;
 	}
 
-	
 	public void setCommandProcessor(CommandProcessor commandProcessor) {
 		this.commandProcessor = commandProcessor;
 	}
-
 
 	public class SessionTerminal implements Runnable {
 
@@ -243,9 +254,12 @@ public class XMPPConsoleAgent {
 		private PipedOutputStream in;
 		private PipedInputStream out;
 		private boolean closed;
+		private Chat mChat;
+		private List<String> mLineBuffer = new ArrayList<String>();
 
-		public SessionTerminal() throws IOException {
+		public SessionTerminal(Chat chat) throws IOException {
 			try {
+				this.mChat = chat;
 				this.terminal = new Terminal(TERM_WIDTH, TERM_HEIGHT);
 				terminal.write("\u001b\u005B20\u0068"); // set newline mode on
 
@@ -278,11 +292,11 @@ public class XMPPConsoleAgent {
 			return closed;
 		}
 
-		public void closed(){
+		public void closed() {
 			console.close();
 		}
-		
-		public String handle(String str, boolean forceDump) throws IOException {
+
+		public void handle(String str, boolean forceDump) throws IOException {
 			try {
 				if (str != null && str.length() > 0) {
 					String d = terminal.pipe(str);
@@ -295,35 +309,86 @@ public class XMPPConsoleAgent {
 				closed = true;
 				throw e;
 			}
-			try {
-				return terminal.dump(10, forceDump);
-			} catch (InterruptedException e) {
-				throw new InterruptedIOException(e.toString());
+		}
+
+		private void addLine(String line) {
+			mLineBuffer.add(line);
+			if (mLineBuffer.size() >= 15) {
+				flushLines();
+			}
+		}
+
+		private void flushLines() {
+			StringBuilder sb = new StringBuilder();
+			for (String line : mLineBuffer) {
+				sb.append(line);
+			}
+			mLineBuffer.clear();
+			if (sb.length() > 0) {
+				try {
+					mChat.sendMessage(sb.toString());
+				} catch (Exception e) {
+					throw new RuntimeException(e);
+				}
 			}
 		}
 
 		public void run() {
 			try {
-				for (;;) {
-					byte[] buf = new byte[8192];
-					int l = out.read(buf);
-					InputStreamReader r = new InputStreamReader(
-							new ByteArrayInputStream(buf, 0, l));
-					StringBuilder sb = new StringBuilder();
-					for (;;) {
-						int c = r.read();
-						if (c == -1) {
+				int bytesRead = 0;
+				int retryTimes = 0;
+				int matchedPos = 0;
+				byte[] buffer = new byte[256];
+				byte[] prompt = "root> ".getBytes();
+				ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+				readData: for (;;) {
+					while (out.available() == 0) {
+						if (retryTimes > 6 * 100) { // 30 mins
+							addLine(output.toString());
+							flushLines();
+							output = new ByteArrayOutputStream();
 							break;
 						}
-						sb.append((char) c);
+						retryTimes++;
+						try {
+							Thread.sleep(10);
+						} catch (InterruptedException e) {
+							logger.error("interrupted: ", e);
+						}
 					}
-					if (sb.length() > 0) {
-						terminal.write(sb.toString());
-					}
-					String s = terminal.read();
-					if (s != null && s.length() > 0) {
-						for (byte b : s.getBytes()) {
-							in.write(b);
+
+					logger.debug("start to read console...");
+					bytesRead = out.read(buffer);
+					logger.debug(String.format("read console %d bytes",
+							bytesRead));
+
+					switch (bytesRead) {
+					case -1:
+						break readData;
+					default:
+						retryTimes = 0;
+						for (int i = 0; i < bytesRead; i++) {
+							output.write(buffer[i]);
+
+							if (matchedPos >= prompt.length) {
+								matchedPos = 0;
+							}
+							if (buffer[i] == prompt[matchedPos]) {
+								matchedPos++;
+							} else {
+								matchedPos = 0;
+							}
+							if (buffer[i] == 0X0A) {
+								addLine(output.toString());
+								output = new ByteArrayOutputStream();
+							}
+						}
+						if (matchedPos == prompt.length) {
+							matchedPos = 0;
+							addLine(output.toString());
+							flushLines();
+							output = new ByteArrayOutputStream();
 						}
 					}
 				}
@@ -334,4 +399,5 @@ public class XMPPConsoleAgent {
 		}
 
 	}
+
 }
