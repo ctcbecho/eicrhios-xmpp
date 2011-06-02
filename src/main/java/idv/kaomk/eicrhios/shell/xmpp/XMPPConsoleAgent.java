@@ -73,7 +73,7 @@ public class XMPPConsoleAgent {
 					proxyInfo);
 		} else
 			throw new IllegalArgumentException(
-					"Bad arguments for ConnectionConfiguration");
+					String.format("Bad arguments for ConnectionConfiguration: %s", this));
 
 		Connection.DEBUG_ENABLED = logger.isDebugEnabled();
 
@@ -83,30 +83,17 @@ public class XMPPConsoleAgent {
 
 		logger.debug("XMPPConnection connect successfully");
 
-		// SmackConfiguration.setLocalSocks5ProxyPort(17777);
-		// SASLAuthentication.supportSASLMechanism("PLAIN", 0);
-
-		// System.out.println(org.jivesoftware.smackx.ServiceDiscoveryManager.class);
-
+		if ( logger.isDebugEnabled()){
+			logger.debug(String.format("XMPPConnection isSecureConnection: %s", mXMPPConnection.isSecureConnection()));
+			logger.debug(String.format("XMPPConnection isUsingCompression: %s", mXMPPConnection.isUsingCompression()));
+		}
+		
 		mXMPPConnection.getRoster().addRosterListener(new RosterListener() {
 
 			@Override
 			public void presenceChanged(Presence presence) {
-				System.out.println("presenceChanged:" + presence.getType()
-						+ ": " + presence.getFrom());
-				// if (presence.isAvailable()) {
-				// String from = presence.getFrom();
-				// if (!mSessionMap.containsKey(from)
-				// || mSessionMap.get(from).isClosed()) {
-				// try {
-				// mSessionMap.put(from, new SessionTerminal());
-				// } catch (IOException e) {
-				// logger.error("error during SessionTerminal init: ",
-				// e);
-				// }
-				// }
-				// }
-
+				logger.debug(String.format("presenceChanged: %s %s", presence.getFrom(), presence.getType()));
+		
 				if (!presence.isAvailable()
 						&& mSessionMap.containsKey(presence.getFrom())) {
 					mSessionMap.remove(presence.getFrom()).closed();
@@ -133,10 +120,10 @@ public class XMPPConsoleAgent {
 		});
 
 		mXMPPConnection.login(mUsername, mPassword);
-
+		
+		logger.debug("mXMPPConnection login successfully.");
+		
 		mXMPPConnection.sendPacket(new Presence(Presence.Type.available));
-
-		// omm.deleteMessages();
 
 		// Assume we've created a Connection name "connection".
 		ChatManager chatmanager = mXMPPConnection.getChatManager();
@@ -149,10 +136,10 @@ public class XMPPConsoleAgent {
 						@Override
 						public void processMessage(Chat chat, Message message) {
 							try {
-								SessionTerminal st;
-								if (mSessionMap.containsKey(message.getFrom())) {
-									st = mSessionMap.get(message.getFrom());
-								} else {
+								SessionTerminal st = mSessionMap.get(message
+										.getFrom());
+
+								if (st == null || st.isClosed()) {
 									st = new SessionTerminal(chat);
 									mSessionMap.put(message.getFrom(), st);
 								}
@@ -161,16 +148,18 @@ public class XMPPConsoleAgent {
 									logger.warn(String.format(
 											"receive error xmpp essage: %s",
 											message.toXML()));
-								} else if (message.getType() == Message.Type.chat){
+								} else if (message.getType() == Message.Type.chat) {
 									StringBuilder sb = new StringBuilder();
 									sb.append(message.getBody()).append("\n");
 									String str = message.getBody();
 									try {
-										st.handle(sb.toString(), false);
+										st.handle(sb.toString());
 									} catch (IOException e) {
 										logger.error("error during handle: ", e);
 									}
-								} else throw new RuntimeException("shoud not happen!!");
+								} else
+									throw new RuntimeException(
+											"shoud not happen!!");
 
 							} catch (Exception e) {
 								throw new RuntimeException(e);
@@ -247,6 +236,16 @@ public class XMPPConsoleAgent {
 		this.commandProcessor = commandProcessor;
 	}
 
+	
+	@Override
+	public String toString() {
+		return "XMPPConsoleAgent [mHost=" + mHost + ", mPort=" + mPort
+				+ ", mServiceName=" + mServiceName + ", mUsername=" + mUsername
+				+ ", mPassword=" + mPassword + ", mHttpProxyHost="
+				+ mHttpProxyHost + ", mHttpProxyPort=" + mHttpProxyPort + "]";
+	}
+
+
 	public class SessionTerminal implements Runnable {
 
 		private Terminal terminal;
@@ -256,6 +255,8 @@ public class XMPPConsoleAgent {
 		private boolean closed;
 		private Chat mChat;
 		private List<String> mLineBuffer = new ArrayList<String>();
+		private boolean mShouleIgnoreMessage = false;
+		private int mMsgCount = 0;
 
 		public SessionTerminal(Chat chat) throws IOException {
 			try {
@@ -294,9 +295,10 @@ public class XMPPConsoleAgent {
 
 		public void closed() {
 			console.close();
+			closed = true;
 		}
 
-		public void handle(String str, boolean forceDump) throws IOException {
+		public void handle(String str) throws IOException {
 			try {
 				if (str != null && str.length() > 0) {
 					String d = terminal.pipe(str);
@@ -305,20 +307,23 @@ public class XMPPConsoleAgent {
 					}
 					in.flush();
 				}
+
 			} catch (IOException e) {
 				closed = true;
 				throw e;
 			}
 		}
 
-		private void addLine(String line) {
-			mLineBuffer.add(line);
-			if (mLineBuffer.size() >= 15) {
-				flushLines();
+		private void addLine(String line) throws XMPPException {
+			if (!mShouleIgnoreMessage) {
+				mLineBuffer.add(line);
+				if (mLineBuffer.size() >= 15) {
+					flushLines();
+				}
 			}
 		}
 
-		private void flushLines() {
+		private void flushLines() throws XMPPException {
 			StringBuilder sb = new StringBuilder();
 			for (String line : mLineBuffer) {
 				sb.append(line);
@@ -327,10 +332,19 @@ public class XMPPConsoleAgent {
 			if (sb.length() > 0) {
 				try {
 					mChat.sendMessage(sb.toString());
+					mMsgCount++;
+
+					if (mMsgCount >= 10) {
+						mChat.sendMessage("\nMesage is too long..");
+						mShouleIgnoreMessage = true;
+						console.close();
+
+					}
 				} catch (Exception e) {
 					throw new RuntimeException(e);
 				}
 			}
+
 		}
 
 		public void run() {
@@ -389,10 +403,12 @@ public class XMPPConsoleAgent {
 							addLine(output.toString());
 							flushLines();
 							output = new ByteArrayOutputStream();
+							mShouleIgnoreMessage = false;
+							mMsgCount = 0;
 						}
 					}
 				}
-			} catch (IOException e) {
+			} catch (Exception e) {
 				closed = true;
 				e.printStackTrace();
 			}
