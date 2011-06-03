@@ -48,6 +48,7 @@ public class XMPPConsoleAgent {
 	private Connection mXMPPConnection;
 	private CommandProcessor commandProcessor;
 	private Map<String, SessionTerminal> mSessionMap = new Hashtable<String, SessionTerminal>();
+	private boolean isWaiting;
 
 	public void connect() throws XMPPException {
 		if (mXMPPConnection != null && mXMPPConnection.isConnected()) {
@@ -72,8 +73,8 @@ public class XMPPConsoleAgent {
 			config = new ConnectionConfiguration(mHost, mPort, mServiceName,
 					proxyInfo);
 		} else
-			throw new IllegalArgumentException(
-					String.format("Bad arguments for ConnectionConfiguration: %s", this));
+			throw new IllegalArgumentException(String.format(
+					"Bad arguments for ConnectionConfiguration: %s", this));
 
 		Connection.DEBUG_ENABLED = logger.isDebugEnabled();
 
@@ -83,17 +84,20 @@ public class XMPPConsoleAgent {
 
 		logger.debug("XMPPConnection connect successfully");
 
-		if ( logger.isDebugEnabled()){
-			logger.debug(String.format("XMPPConnection isSecureConnection: %s", mXMPPConnection.isSecureConnection()));
-			logger.debug(String.format("XMPPConnection isUsingCompression: %s", mXMPPConnection.isUsingCompression()));
+		if (logger.isDebugEnabled()) {
+			logger.debug(String.format("XMPPConnection isSecureConnection: %s",
+					mXMPPConnection.isSecureConnection()));
+			logger.debug(String.format("XMPPConnection isUsingCompression: %s",
+					mXMPPConnection.isUsingCompression()));
 		}
-		
+
 		mXMPPConnection.getRoster().addRosterListener(new RosterListener() {
 
 			@Override
 			public void presenceChanged(Presence presence) {
-				logger.debug(String.format("presenceChanged: %s %s", presence.getFrom(), presence.getType()));
-		
+				logger.debug(String.format("presenceChanged: %s %s",
+						presence.getFrom(), presence.getType()));
+
 				if (!presence.isAvailable()
 						&& mSessionMap.containsKey(presence.getFrom())) {
 					mSessionMap.remove(presence.getFrom()).closed();
@@ -119,10 +123,6 @@ public class XMPPConsoleAgent {
 			}
 		});
 
-		mXMPPConnection.login(mUsername, mPassword);
-		
-		logger.debug("mXMPPConnection login successfully.");
-		
 		mXMPPConnection.sendPacket(new Presence(Presence.Type.available));
 
 		// Assume we've created a Connection name "connection".
@@ -149,6 +149,13 @@ public class XMPPConsoleAgent {
 											"receive error xmpp essage: %s",
 											message.toXML()));
 								} else if (message.getType() == Message.Type.chat) {
+									synchronized (st) {
+										if (isWaiting) {
+											st.notify();
+											isWaiting = false;
+											return;
+										}
+									}
 									StringBuilder sb = new StringBuilder();
 									sb.append(message.getBody()).append("\n");
 									String str = message.getBody();
@@ -157,6 +164,9 @@ public class XMPPConsoleAgent {
 									} catch (IOException e) {
 										logger.error("error during handle: ", e);
 									}
+									//
+									// chat.sendMessage("11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"+
+									// "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111");
 								} else
 									throw new RuntimeException(
 											"shoud not happen!!");
@@ -171,9 +181,10 @@ public class XMPPConsoleAgent {
 
 		});
 
-		if (logger.isDebugEnabled()) {
-			logger.debug(String.format("mXMPPConnection: %s", mXMPPConnection));
-		}
+		mXMPPConnection.login(mUsername, mPassword);
+
+		logger.debug("mXMPPConnection login successfully.");
+		
 	}
 
 	public String getHost() {
@@ -236,7 +247,6 @@ public class XMPPConsoleAgent {
 		this.commandProcessor = commandProcessor;
 	}
 
-	
 	@Override
 	public String toString() {
 		return "XMPPConsoleAgent [mHost=" + mHost + ", mPort=" + mPort
@@ -244,7 +254,6 @@ public class XMPPConsoleAgent {
 				+ ", mPassword=" + mPassword + ", mHttpProxyHost="
 				+ mHttpProxyHost + ", mHttpProxyPort=" + mHttpProxyPort + "]";
 	}
-
 
 	public class SessionTerminal implements Runnable {
 
@@ -257,6 +266,7 @@ public class XMPPConsoleAgent {
 		private List<String> mLineBuffer = new ArrayList<String>();
 		private boolean mShouleIgnoreMessage = false;
 		private int mMsgCount = 0;
+		private int mMessageLength = 0;
 
 		public SessionTerminal(Chat chat) throws IOException {
 			try {
@@ -314,12 +324,18 @@ public class XMPPConsoleAgent {
 			}
 		}
 
-		private void addLine(String line) throws XMPPException {
-			if (!mShouleIgnoreMessage) {
-				mLineBuffer.add(line);
-				if (mLineBuffer.size() >= 15) {
+		private void addLine(String line) throws Exception {
+			line = line.replaceAll("\u001B\\[[\\d;]+m", "");
+
+			synchronized (this) {
+				if (mMessageLength + line.length() > 1024) {
 					flushLines();
+					isWaiting = true;
+					wait();
+
 				}
+				mLineBuffer.add(line);
+				mMessageLength += line.length();
 			}
 		}
 
@@ -329,17 +345,20 @@ public class XMPPConsoleAgent {
 				sb.append(line);
 			}
 			mLineBuffer.clear();
+			mMessageLength = 0;
+
 			if (sb.length() > 0) {
 				try {
+					System.out.println("length:" + sb.length());
 					mChat.sendMessage(sb.toString());
-					mMsgCount++;
-
-					if (mMsgCount >= 10) {
-						mChat.sendMessage("\nMesage is too long..");
-						mShouleIgnoreMessage = true;
-						console.close();
-
-					}
+					// mMsgCount++;
+					//
+					// if (mMsgCount >= 10) {
+					// mChat.sendMessage("\nMesage is too long..");
+					// mShouleIgnoreMessage = true;
+					// console.close();
+					//
+					// }
 				} catch (Exception e) {
 					throw new RuntimeException(e);
 				}
